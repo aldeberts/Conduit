@@ -1,0 +1,22 @@
+{
+  "name": "conduit",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "services/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "npm run dev -w @conduit/middleman",
+    "dev:web": "npm run dev -w @conduit/web",
+    "dev:all": "concurrently -n middleman,web -c blue,green \"npm run dev -w @conduit/middleman\" \"npm run dev -w @conduit/web\"",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
