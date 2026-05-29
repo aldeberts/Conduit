@@ -1,8 +1,4 @@
-import CodeMirror from "@uiw/react-codemirror";
-import { EditorView } from "@codemirror/view";
-import { useMemo } from "react";
-import { catppuccinMochaTheme } from "../editor/catppuccinMocha";
-import { languageSupportForPath } from "../editor/languageSupport";
+import { CollaborativeEditor } from "./CollaborativeEditor";
 
 export type EditorTab = {
   path: string;
@@ -20,34 +16,35 @@ function shortName(path: string): string {
 }
 
 type Props = {
+  connectionId: string;
+  apiToken?: string;
   tabs: EditorTab[];
   activePath: string | null;
   onSelectTab: (path: string) => void;
   onCloseTab: (path: string) => void;
-  onEdit: (path: string, value: string) => void;
+  onRevision: (path: string, revision: number, dirty: boolean) => void;
+  onMarkDirty: (path: string) => void;
   onSave: () => void;
   onRefresh: (force: boolean) => void;
   saveError: string | null;
 };
 
 export function EditorWorkbench({
+  connectionId,
+  apiToken,
   tabs,
   activePath,
   onSelectTab,
   onCloseTab,
-  onEdit,
+  onRevision,
+  onMarkDirty,
   onSave,
   onRefresh,
   saveError,
 }: Props): JSX.Element {
   const active = tabs.find((t) => t.path === activePath) ?? null;
-
-  const extensions = useMemo(
-    () => [...catppuccinMochaTheme, EditorView.lineWrapping, ...languageSupportForPath(activePath ?? "")],
-    [activePath],
-  );
-
   const canSave = Boolean(active?.loaded && !active.loading && active.dirty);
+  const loadedTabs = tabs.filter((t) => t.loaded && !t.loading && !t.loadError);
 
   return (
     <section className="editor-pane">
@@ -100,22 +97,30 @@ export function EditorWorkbench({
       </div>
       {saveError ? <div className="error editor-banner">{saveError}</div> : null}
       <div className="editor-cm-host">
-        {!activePath || !active ? (
-          <div className="editor-empty">Open a file from the sidebar to start editing.</div>
-        ) : active.loading ? (
+        {active?.loading ? (
           <div className="editor-empty">Loading…</div>
-        ) : active.loadError ? (
+        ) : active?.loadError ? (
           <div className="editor-empty editor-empty-error">{active.loadError}</div>
+        ) : loadedTabs.length === 0 ? (
+          <div className="editor-empty">Select a file from the sidebar.</div>
         ) : (
-          <CodeMirror
-            value={active.content}
-            height="100%"
-            theme="dark"
-            extensions={extensions}
-            onChange={(value) => onEdit(active.path, value)}
-            basicSetup={{ lineNumbers: true, foldGutter: true, highlightActiveLine: true }}
-            className="editor-codemirror"
-          />
+          loadedTabs.map((tab) => (
+            <div
+              key={tab.path}
+              className={`editor-tab-pane${tab.path === activePath ? " active" : ""}`}
+              aria-hidden={tab.path !== activePath}
+            >
+              <CollaborativeEditor
+                connectionId={connectionId}
+                path={tab.path}
+                active={tab.path === activePath}
+                seedContent={tab.content}
+                apiToken={apiToken}
+                onRevision={(revision, dirty) => onRevision(tab.path, revision, dirty)}
+                onMarkDirty={() => onMarkDirty(tab.path)}
+              />
+            </div>
+          ))
         )}
       </div>
     </section>

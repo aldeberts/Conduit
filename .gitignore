@@ -3,3 +3,7 @@ dist/
 .env
 *.log
 .DS_Store
+
+# Runtime-persisted Yjs document state (set via DATA_DIR in .env)
+data/
+real_shadow/

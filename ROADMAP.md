@@ -28,9 +28,11 @@ This document captures the planned path from the current prototype toward the lo
 
 ---
 
-## Phase B — Real-time collaboration (Yjs + WebSocket)
+## Phase B — Real-time collaboration (Yjs + WebSocket) ✅ (implemented)
 
 **Goal:** Multiple participants editing the same logical file with **merged** text (CRDT), then **save** flushes merged state to SFTP.
+
+**Implemented:** Canonical `Y.Doc` per open document; `WS /api/ws` with subscribe/sync/unsubscribe; web editor uses `y-codemirror.next` + `DocumentWsSync`.
 
 **Typical additions**
 
@@ -42,9 +44,11 @@ This document captures the planned path from the current prototype toward the lo
 
 ---
 
-## Phase C — Durability and operations
+## Phase C — Durability and operations ✅ (baseline implemented)
 
 **Goal:** Survive restarts and be deployable as a service.
+
+**Implemented:** `DATA_DIR` persistence (debounced Yjs snapshots + meta); optional `API_TOKEN` auth on HTTP/WS; `/health` metrics snapshot. TLS/production SSH broker still TBD.
 
 **Typical additions**
 

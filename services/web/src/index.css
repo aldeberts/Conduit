@@ -169,6 +169,61 @@ button.ghost {
   min-height: 0;
 }
 
+.workspace-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.terminal-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 280px;
+  min-height: 180px;
+  max-height: 45vh;
+  border-top: 1px solid var(--border);
+  background: #181825;
+}
+
+.terminal-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.terminal-panel-title {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.terminal-panel-status {
+  font-size: 0.75rem;
+}
+
+.terminal-host {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  padding: 0 0.5rem 0.5rem;
+}
+
+.terminal-host .xterm {
+  position: absolute;
+  inset: 0;
+  height: auto !important;
+}
+
+.terminal-host .xterm-viewport {
+  overflow-y: auto !important;
+}
+
 .sidebar {
   border-right: 1px solid var(--border);
   background: var(--panel);
@@ -230,6 +285,7 @@ button.ghost {
 .editor-pane {
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-height: 0;
   background: var(--ctp-base);
 }
@@ -336,6 +392,22 @@ button.ghost {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+.editor-tab-pane {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.editor-tab-pane.active {
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .editor-cm-host > .editor-empty,
@@ -356,6 +428,32 @@ button.ghost {
 
 .editor-cm-host .cm-scroller {
   min-height: 0 !important;
+}
+
+.editor-cm-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.editor-cm-wrap .editor-codemirror {
+  flex: 1;
+  min-height: 0;
+}
+
+.editor-connecting-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(30, 30, 46, 0.85);
+  color: var(--muted);
+  font-size: 0.9rem;
+  pointer-events: none;
 }
 
 .editor-empty {

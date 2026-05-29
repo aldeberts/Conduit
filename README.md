@@ -56,7 +56,17 @@ Open files are **owned by the middleman** (buffer, dirty flag, revision, remote 
 | `POST` | `/api/connections/:id/documents/close` | Release document |
 | `GET` | `/api/connections/:id/documents` | List open documents |
 
-The web UI uses these endpoints (debounced PATCH while typing). Legacy `GET/PUT .../file` still exists for scripts.
+The web UI opens documents over HTTP, then syncs edits over **WebSocket** (`/api/ws`) via **Yjs**. Legacy `GET/PUT .../file` still exists for scripts.
+
+### WebSocket (Phase B)
+
+Connect to `ws://127.0.0.1:3333/api/ws` (optional `?token=` if `API_TOKEN` is set). Messages: `subscribe`, `unsubscribe`, `sync` — see `@conduit/shared` types in `packages/shared/src/ws.ts`.
+
+### Persistence & auth (Phase C)
+
+- `DATA_DIR` — Yjs snapshots written under `./data/conduit` (default).
+- `API_TOKEN` — when set, require `Authorization: Bearer <token>` (or `X-Conduit-Token`) on HTTP APIs; WebSocket uses **`?token=`** on the socket URL (the web app passes this automatically when `VITE_API_TOKEN` is set).
+- Web: set `VITE_API_TOKEN` in `.env` (same value as `API_TOKEN`) so REST calls send `Authorization` and document sync adds `?token=` to `/api/ws`.
 
 ## Smoke test
 

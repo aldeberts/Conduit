@@ -1,7 +1,11 @@
-/**
- * Placeholder for the shared PTY multiplexer (multiplexed input, broadcast output).
- * Wire `node-pty` here once the file merge path is stable.
- */
+export {
+  destroyPtySession,
+  resizePty,
+  subscribePty,
+  unsubscribePty,
+  writePtyInput,
+} from "./registry.js";
+
 export function ptyModuleLoaded(): boolean {
   return true;
 }

@@ -2,7 +2,7 @@ import { constants as fsConstants } from "node:fs";
 import { randomUUID } from "node:crypto";
 import process from "node:process";
 import path from "node:path/posix";
-import { Client, type ConnectConfig, type SFTPWrapper } from "ssh2";
+import { Client, type Channel, type ConnectConfig, type SFTPWrapper } from "ssh2";
 import { resolveUnderRemoteRoot } from "./paths.js";
 
 const MAX_READ_BYTES = 1_500_000;
@@ -171,15 +171,86 @@ export function getConnection(id: string): Stored | undefined {
   return connections.get(id);
 }
 
+/** Stub SSH connection for WebSocket / collab tests (no real SFTP). */
+export function registerTestConnection(
+  id: string,
+  remoteRoot = "/",
+  sftp: Partial<SFTPWrapper> = {},
+): void {
+  connections.set(id, {
+    id,
+    label: "test",
+    remoteRoot,
+    client: {} as Client,
+    sftp: sftp as SFTPWrapper,
+  });
+}
+
+/** Returns an in-memory SFTPWrapper stub that satisfies just enough of the
+ * surface (`stat` and `writeFile`) for the file-create flow. Files are stored
+ * by absolute remote path in `files`. */
+export function makeInMemorySftp(files: Map<string, string>): Partial<SFTPWrapper> {
+  const stub = {
+    stat(remotePath: string, cb: (err: Error | null, stats?: import("ssh2").Stats) => void): boolean {
+      const content = files.get(remotePath);
+      if (content !== undefined) {
+        cb(null, { isDirectory: () => false, size: content.length } as import("ssh2").Stats);
+      } else {
+        cb(new Error("ENOENT"));
+      }
+      return false;
+    },
+    writeFile(
+      remotePath: string,
+      data: Buffer | string,
+      _opts: unknown,
+      cb: (err: Error | null) => void,
+    ): void {
+      files.set(remotePath, typeof data === "string" ? data : data.toString("utf8"));
+      cb(null);
+    },
+  };
+  return stub as unknown as Partial<SFTPWrapper>;
+}
+
 export async function closeConnection(id: string): Promise<boolean> {
   const stored = connections.get(id);
   if (!stored) {
     return false;
   }
   connections.delete(id);
+  const { destroyPtySession } = await import("../pty/registry.js");
+  destroyPtySession(id);
   stored.sftp.end();
   stored.client.end();
   return true;
+}
+
+function shellQuotePosix(path: string): string {
+  return `'${path.replace(/'/g, `'\\''`)}'`;
+}
+
+/** Interactive shell on the remote host (shared by PTY subscribers). */
+export function openShell(connectionId: string, cols: number, rows: number): Promise<Channel> {
+  const stored = connections.get(connectionId);
+  if (!stored) {
+    return Promise.reject(new Error("unknown_connection"));
+  }
+  const remoteRoot = stored.remoteRoot;
+  const startCmd = `cd ${shellQuotePosix(remoteRoot)} && exec $SHELL -l`;
+  return new Promise((resolve, reject) => {
+    stored.client.exec(
+      startCmd,
+      { pty: { term: "xterm-256color", cols, rows, width: 0, height: 0 } },
+      (err, stream) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(stream);
+      },
+    );
+  });
 }
 
 export async function listTree(connectionId: string, relativeDir: string): Promise<TreeEntry[]> {
@@ -248,4 +319,31 @@ export async function writeRemoteTextFile(connectionId: string, relativePath: st
   }
   const abs = resolveUnderRemoteRoot(stored.remoteRoot, relativePath);
   await sftpWriteFile(stored.sftp, abs, contents);
+}
+
+/**
+ * Creates an empty file at `relativePath`. Fails with `file_exists` if the path
+ * already resolves to anything (file or dir) on the remote host. Used by the
+ * "New file" action so two tabs can never silently clobber each other.
+ */
+export async function createRemoteEmptyFile(
+  connectionId: string,
+  relativePath: string,
+): Promise<void> {
+  const stored = connections.get(connectionId);
+  if (!stored) {
+    throw new Error("unknown_connection");
+  }
+  const abs = resolveUnderRemoteRoot(stored.remoteRoot, relativePath);
+  let exists = false;
+  try {
+    await sftpStat(stored.sftp, abs);
+    exists = true;
+  } catch {
+    /* not found: good, fall through to write */
+  }
+  if (exists) {
+    throw new Error("file_exists");
+  }
+  await sftpWriteFile(stored.sftp, abs, "");
 }

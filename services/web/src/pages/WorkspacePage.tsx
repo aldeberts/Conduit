@@ -1,22 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { EditorWorkbench, type EditorTab } from "../components/EditorWorkbench";
+import { TerminalPanel } from "../components/TerminalPanel";
 import {
   closeDocument,
+  createFile,
   deleteConnection,
   getDocument,
   openDocument,
-  patchDocument,
   refreshDocument,
   saveDocument,
   fetchTree,
   type DocumentState,
   type TreeEntry,
 } from "../lib/api";
+import { subscribeWsTree } from "../lib/wsPool";
 
 type LocationState = { label?: string; remoteRoot?: string } | null;
 
-const PATCH_DEBOUNCE_MS = 400;
+const apiToken = import.meta.env.VITE_API_TOKEN as string | undefined;
 
 function docToTab(doc: DocumentState): EditorTab {
   return {
@@ -43,8 +45,8 @@ export function WorkspacePage(): JSX.Element {
   const [tabs, setTabs] = useState<EditorTab[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [connectionLost, setConnectionLost] = useState(false);
 
-  const patchTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const id = connectionId ?? "";
   const openPaths = useMemo(() => new Set(tabs.map((t) => t.path)), [tabs]);
 
@@ -54,10 +56,6 @@ export function WorkspacePage(): JSX.Element {
     setTabs([]);
     setActivePath(null);
     setSaveError(null);
-    for (const t of patchTimers.current.values()) {
-      clearTimeout(t);
-    }
-    patchTimers.current.clear();
   }, [id]);
 
   const loadDir = useCallback(
@@ -65,16 +63,55 @@ export function WorkspacePage(): JSX.Element {
       if (!id) {
         return;
       }
-      setEntriesByDir((prev) => ({ ...prev, [dirPath]: "loading" }));
+      // Only show "loading" if we have nothing to display yet. Re-fetches (e.g.
+      // after a `tree_changed`) keep the old entries visible until the new ones
+      // arrive, avoiding a flicker.
+      setEntriesByDir((prev) => {
+        const existing = prev[dirPath];
+        if (Array.isArray(existing)) {
+          return prev;
+        }
+        return { ...prev, [dirPath]: "loading" };
+      });
       try {
         const res = await fetchTree(id, dirPath);
         setEntriesByDir((prev) => ({ ...prev, [dirPath]: res.entries }));
-      } catch {
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg === "unknown_connection") {
+          setConnectionLost(true);
+        }
         setEntriesByDir((prev) => ({ ...prev, [dirPath]: "error" }));
       }
     },
     [id],
   );
+
+  // Use a ref so the WS handler (registered once per `id`) sees the latest
+  // entries map; we only want to refresh dirs that have actually been loaded.
+  const entriesByDirRef = useRef(entriesByDir);
+  entriesByDirRef.current = entriesByDir;
+
+  useEffect(() => {
+    if (!id) {
+      return;
+    }
+    const unsub = subscribeWsTree(
+      id,
+      (msg) => {
+        if (msg.connectionId !== id) {
+          return;
+        }
+        // Re-fetch the affected dir if it's already loaded in the tree. We
+        // don't auto-load unloaded dirs because the user hasn't expanded them.
+        if (entriesByDirRef.current[msg.dir] !== undefined) {
+          void loadDir(msg.dir);
+        }
+      },
+      apiToken,
+    );
+    return unsub;
+  }, [id, loadDir]);
 
   useEffect(() => {
     if (!id) {
@@ -99,29 +136,25 @@ export function WorkspacePage(): JSX.Element {
       setSaveError(null);
       setActivePath(path);
 
-      const existing = tabs.find((t) => t.path === path);
-      if (existing?.loaded) {
-        try {
-          const doc = await getDocument(id, path);
-          applyDoc(doc);
-        } catch {
-          /* keep local tab state */
-        }
-        return;
-      }
-
+      let alreadyLoaded = false;
       setTabs((prev) => {
+        const existing = prev.find((t) => t.path === path);
+        if (existing?.loaded) {
+          alreadyLoaded = true;
+          return prev;
+        }
         const ex = prev.find((t) => t.path === path);
         if (ex) {
           return prev.map((t) =>
             t.path === path ? { ...t, loading: true, loadError: undefined } : t,
           );
         }
-        return [
-          ...prev,
-          { path, content: "", revision: 0, loaded: false, loading: true, dirty: false },
-        ];
+        return [...prev, { path, content: "", revision: 0, loaded: false, loading: true, dirty: false }];
       });
+
+      if (alreadyLoaded) {
+        return;
+      }
 
       try {
         const doc = await openDocument(id, path);
@@ -137,59 +170,43 @@ export function WorkspacePage(): JSX.Element {
         );
       }
     },
-    [id, tabs, applyDoc],
-  );
-
-  const schedulePatch = useCallback(
-    (path: string, content: string) => {
-      if (!id) {
-        return;
-      }
-      const prev = patchTimers.current.get(path);
-      if (prev) {
-        clearTimeout(prev);
-      }
-      patchTimers.current.set(
-        path,
-        setTimeout(() => {
-          patchTimers.current.delete(path);
-          void patchDocument(id, path, content)
-            .then(applyDoc)
-            .catch(() => {
-              /* keep local dirty; user can retry on save */
-            });
-        }, PATCH_DEBOUNCE_MS),
-      );
-    },
     [id, applyDoc],
   );
 
-  const onEdit = useCallback(
-    (path: string, value: string) => {
-      setTabs((prev) =>
-        prev.map((t) => (t.path === path ? { ...t, content: value, dirty: true } : t)),
-      );
-      schedulePatch(path, value);
-    },
-    [schedulePatch],
-  );
+  const onRevision = useCallback((path: string, revision: number, dirty: boolean) => {
+    setTabs((prev) => {
+      let changed = false;
+      const next = prev.map((t) => {
+        if (t.path !== path) {
+          return t;
+        }
+        if (t.revision === revision && t.dirty === dirty) {
+          return t;
+        }
+        changed = true;
+        return { ...t, revision, dirty };
+      });
+      return changed ? next : prev;
+    });
+  }, []);
+
+  const onMarkDirty = useCallback((path: string) => {
+    setTabs((prev) => {
+      let changed = false;
+      const next = prev.map((t) => {
+        if (t.path !== path || t.dirty) {
+          return t;
+        }
+        changed = true;
+        return { ...t, dirty: true };
+      });
+      return changed ? next : prev;
+    });
+  }, []);
 
   const onSave = async (): Promise<void> => {
     if (!id || !activePath) {
       return;
-    }
-    const pending = patchTimers.current.get(activePath);
-    if (pending) {
-      clearTimeout(pending);
-      patchTimers.current.delete(activePath);
-      const tab = tabs.find((t) => t.path === activePath);
-      if (tab) {
-        try {
-          await patchDocument(id, activePath, tab.content);
-        } catch {
-          /* continue to save attempt */
-        }
-      }
     }
     setSaveError(null);
     try {
@@ -215,11 +232,6 @@ export function WorkspacePage(): JSX.Element {
 
   const onCloseTab = useCallback(
     (path: string) => {
-      const pending = patchTimers.current.get(path);
-      if (pending) {
-        clearTimeout(pending);
-        patchTimers.current.delete(path);
-      }
       if (id) {
         void closeDocument(id, path);
       }
@@ -244,15 +256,54 @@ export function WorkspacePage(): JSX.Element {
     [openFile],
   );
 
+  const onCreateFile = useCallback(async (): Promise<void> => {
+    if (!id) {
+      return;
+    }
+    const raw = window.prompt(
+      "New file path (relative to workspace root, e.g. src/new.ts):",
+      "",
+    );
+    if (raw === null) {
+      return;
+    }
+    const trimmed = raw.trim().replace(/^\/+/, "");
+    if (trimmed === "") {
+      return;
+    }
+    setSaveError(null);
+    try {
+      await createFile(id, trimmed);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setSaveError(
+        msg === "file_exists"
+          ? `A file already exists at ${trimmed}`
+          : `Could not create ${trimmed}: ${msg}`,
+      );
+      return;
+    }
+    // The server broadcasts tree_changed so other tabs refresh the dir; our
+    // own tab still needs an immediate refresh + ensure the parent is expanded.
+    const slash = trimmed.lastIndexOf("/");
+    const parentDir = slash >= 0 ? trimmed.slice(0, slash) : "";
+    setExpanded((prev) => {
+      if (prev.has(parentDir)) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.add(parentDir);
+      return next;
+    });
+    await loadDir(parentDir);
+    void openFile(trimmed);
+  }, [id, loadDir, openFile]);
+
   const onCloseConnection = async (): Promise<void> => {
     if (!id) {
       navigate("/");
       return;
     }
-    for (const t of patchTimers.current.values()) {
-      clearTimeout(t);
-    }
-    patchTimers.current.clear();
     try {
       await deleteConnection(id);
     } catch {
@@ -289,6 +340,17 @@ export function WorkspacePage(): JSX.Element {
     }
   }, [meta?.label, meta?.remoteRoot]);
 
+  if (connectionLost) {
+    return (
+      <div className="editor-empty editor-empty-error" style={{ padding: "2rem", flexDirection: "column", gap: "1rem" }}>
+        <div>This SSH connection no longer exists on the server (middleman was restarted).</div>
+        <button type="button" className="primary" onClick={() => navigate("/")}>
+          Back to connections
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="workspace">
       <aside className="sidebar">
@@ -296,6 +358,9 @@ export function WorkspacePage(): JSX.Element {
           <div style={{ fontWeight: 600, color: "var(--text)" }}>{title}</div>
           <div style={{ fontSize: "0.8rem", marginTop: "0.2rem", wordBreak: "break-all" }}>{subtitle}</div>
           <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.35rem" }}>
+            <button type="button" className="ghost" onClick={() => void onCreateFile()}>
+              New file
+            </button>
             <button type="button" className="ghost" onClick={() => void onCloseConnection()}>
               Disconnect
             </button>
@@ -314,16 +379,22 @@ export function WorkspacePage(): JSX.Element {
           />
         </div>
       </aside>
-      <EditorWorkbench
-        tabs={tabs}
-        activePath={activePath}
-        onSelectTab={onSelectTab}
-        onCloseTab={onCloseTab}
-        onEdit={onEdit}
-        onSave={() => void onSave()}
-        onRefresh={(force) => void onRefresh(force)}
-        saveError={saveError}
-      />
+      <div className="workspace-main">
+        <EditorWorkbench
+          connectionId={id}
+          apiToken={apiToken}
+          tabs={tabs}
+          activePath={activePath}
+          onSelectTab={onSelectTab}
+          onCloseTab={onCloseTab}
+          onRevision={onRevision}
+          onMarkDirty={onMarkDirty}
+          onSave={() => void onSave()}
+          onRefresh={(force) => void onRefresh(force)}
+          saveError={saveError}
+        />
+        {id ? <TerminalPanel connectionId={id} apiToken={apiToken} /> : null}
+      </div>
     </div>
   );
 }

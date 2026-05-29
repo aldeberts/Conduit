@@ -1,13 +1,17 @@
+import path from "node:path/posix";
 import type { FastifyPluginAsync } from "fastify";
+import { agentLog } from "../debugAgentLog.js";
 import { evictAllForConnection } from "../documents/registry.js";
 import {
   closeConnection,
+  createRemoteEmptyFile,
   createSftpConnection,
   getConnection,
   listTree,
   readRemoteTextFile,
   writeRemoteTextFile,
 } from "../ssh/registry.js";
+import { broadcastWsMessage } from "../ws/handler.js";
 
 const connectionsApi: FastifyPluginAsync = async (app) => {
   app.post<{
@@ -60,7 +64,16 @@ const connectionsApi: FastifyPluginAsync = async (app) => {
     Querystring: { path?: string };
   }>("/api/connections/:connectionId/tree", async (request, reply) => {
     const { connectionId } = request.params;
-    if (!getConnection(connectionId)) {
+    const known = Boolean(getConnection(connectionId));
+    // #region agent log
+    agentLog(
+      "connections.ts:tree",
+      "tree request",
+      { connectionId, known },
+      "H1",
+    );
+    // #endregion
+    if (!known) {
       return reply.status(404).send({ error: "unknown_connection" });
     }
     const rel = typeof request.query.path === "string" ? request.query.path : "";
@@ -124,6 +137,37 @@ const connectionsApi: FastifyPluginAsync = async (app) => {
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: "write_failed", message });
     }
+  });
+
+  app.post<{
+    Params: { connectionId: string };
+    Body: { path?: string };
+  }>("/api/connections/:connectionId/files", async (request, reply) => {
+    const { connectionId } = request.params;
+    if (!getConnection(connectionId)) {
+      return reply.status(404).send({ error: "unknown_connection" });
+    }
+    const rel = typeof request.body?.path === "string" ? request.body.path.trim() : "";
+    if (rel === "") {
+      return reply.status(400).send({ error: "path is required" });
+    }
+    try {
+      await createRemoteEmptyFile(connectionId, rel);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message === "file_exists") {
+        return reply.status(409).send({ error: message });
+      }
+      if (message === "unknown_connection") {
+        return reply.status(404).send({ error: message });
+      }
+      return reply.status(500).send({ error: "create_failed", message });
+    }
+    // path.dirname("foo") === "." → we want "" for the workspace root.
+    const parent = path.dirname(rel);
+    const dir = parent === "." ? "" : parent;
+    broadcastWsMessage({ type: "tree_changed", connectionId, dir });
+    return reply.send({ ok: true, path: rel });
   });
 
   app.delete<{

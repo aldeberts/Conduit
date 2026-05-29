@@ -5,3 +5,4 @@
 export type WorkspaceId = string;
 
 export type { DocumentState, RemoteSnapshot } from "./documents.js";
+export type { WsClientMessage, WsServerMessage } from "./ws.js";

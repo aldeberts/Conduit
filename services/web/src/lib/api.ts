@@ -1,4 +1,12 @@
-const jsonHeaders = { "content-type": "application/json" };
+const apiToken = import.meta.env.VITE_API_TOKEN as string | undefined;
+
+function authHeaders(): Record<string, string> {
+  const h: Record<string, string> = { "content-type": "application/json" };
+  if (apiToken) {
+    h.authorization = `Bearer ${apiToken}`;
+  }
+  return h;
+}
 
 export type TreeEntry = {
   name: string;
@@ -41,7 +49,7 @@ export async function createConnection(body: {
 }): Promise<{ id: string; label: string; remoteRoot: string }> {
   const res = await fetch("/api/connections", {
     method: "POST",
-    headers: jsonHeaders,
+    headers: authHeaders(),
     body: JSON.stringify(body),
   });
   const data = await parseJson(res);
@@ -70,7 +78,7 @@ export async function fetchTree(
 export async function openDocument(connectionId: string, path: string): Promise<DocumentState> {
   const res = await fetch(`/api/connections/${encodeURIComponent(connectionId)}/documents/open`, {
     method: "POST",
-    headers: jsonHeaders,
+    headers: authHeaders(),
     body: JSON.stringify({ path }),
   });
   const data = await parseJson(res);
@@ -100,7 +108,7 @@ export async function patchDocument(
 ): Promise<DocumentState> {
   const res = await fetch(`/api/connections/${encodeURIComponent(connectionId)}/documents`, {
     method: "PATCH",
-    headers: jsonHeaders,
+    headers: authHeaders(),
     body: JSON.stringify({ path, content }),
   });
   const data = await parseJson(res);
@@ -113,7 +121,7 @@ export async function patchDocument(
 export async function saveDocument(connectionId: string, path: string): Promise<DocumentState> {
   const res = await fetch(`/api/connections/${encodeURIComponent(connectionId)}/documents/save`, {
     method: "POST",
-    headers: jsonHeaders,
+    headers: authHeaders(),
     body: JSON.stringify({ path }),
   });
   const data = await parseJson(res);
@@ -130,7 +138,7 @@ export async function refreshDocument(
 ): Promise<DocumentState> {
   const res = await fetch(`/api/connections/${encodeURIComponent(connectionId)}/documents/refresh`, {
     method: "POST",
-    headers: jsonHeaders,
+    headers: authHeaders(),
     body: JSON.stringify({ path, force }),
   });
   const data = await parseJson(res);
@@ -143,7 +151,19 @@ export async function refreshDocument(
 export async function closeDocument(connectionId: string, path: string): Promise<void> {
   const res = await fetch(`/api/connections/${encodeURIComponent(connectionId)}/documents/close`, {
     method: "POST",
-    headers: jsonHeaders,
+    headers: authHeaders(),
+    body: JSON.stringify({ path }),
+  });
+  if (!res.ok) {
+    const data = await parseJson(res);
+    throw apiError(data, res.status);
+  }
+}
+
+export async function createFile(connectionId: string, path: string): Promise<void> {
+  const res = await fetch(`/api/connections/${encodeURIComponent(connectionId)}/files`, {
+    method: "POST",
+    headers: authHeaders(),
     body: JSON.stringify({ path }),
   });
   if (!res.ok) {
