@@ -144,3 +144,12 @@ export async function probeSession(): Promise<
     return { authenticated: false };
   }
 }
+
+/** Clears the HTTP-only session cookie on the server. */
+export async function logoutSession(): Promise<void> {
+  try {
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+  } catch {
+    /* best-effort */
+  }
+}

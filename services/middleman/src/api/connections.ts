@@ -155,6 +155,27 @@ export function makeConnectionsApi(deps: Deps): FastifyPluginAsync {
       },
     );
 
+    /** Close the in-memory SSH session; keeps the workspace row for reopen later. */
+    app.post<{ Params: { connectionId: string } }>(
+      "/api/connections/:connectionId/close",
+      async (request, reply) => {
+        const { connectionId } = request.params;
+        const access = await requireConnectionAccess(db, request, reply, apiToken, connectionId);
+        if (!access.ok) return;
+        evictAllForConnection(connectionId);
+        const closed = await closeConnection(connectionId);
+        if (db && access.principal && closed) {
+          recordAudit(db, {
+            userId: ownerUserId(access.principal),
+            action: "connection.close",
+            targetKind: "connection",
+            targetId: connectionId,
+          });
+        }
+        return reply.send({ ok: true, closed, alreadyClosed: !closed });
+      },
+    );
+
     app.post<{
       Body: {
         label?: string;

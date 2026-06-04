@@ -1,13 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
-  deleteConnection,
-  listMyConnections,
   pollSshAuthSession,
-  reopenConnection,
   startInteractiveConnection,
   submitSshAuthResponses,
-  type ServerConnection,
 } from "../lib/api";
 import { SshAuthModal } from "../components/SshAuthModal";
 import { parseSshCommand } from "../lib/parseSsh";
@@ -18,18 +14,37 @@ import {
   type RecentConnection,
 } from "../lib/recentConnections";
 
+type PrefillState = {
+  prefill?: {
+    label: string;
+    host: string;
+    port: number;
+    username: string;
+    remotePath: string;
+  };
+} | null;
+
 export function ConnectionPage(): JSX.Element {
   const navigate = useNavigate();
-  const [label, setLabel] = useState("");
-  const [sshCommand, setSshCommand] = useState("ssh user@example.com");
-  const [remotePath, setRemotePath] = useState("/home/user/project");
+  const location = useLocation();
+  const prefill = (location.state as PrefillState)?.prefill;
+
+  const [label, setLabel] = useState(prefill?.label ?? "");
+  const [sshCommand, setSshCommand] = useState(() => {
+    if (prefill) {
+      const portPart = prefill.port === 22 ? "" : `-p ${prefill.port} `;
+      return `ssh ${portPart}${prefill.username}@${prefill.host}`;
+    }
+    return "ssh user@example.com";
+  });
+  const [remotePath, setRemotePath] = useState(prefill?.remotePath ?? "/home/user/project");
   const [password, setPassword] = useState("");
   const [privateKey, setPrivateKey] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    prefill ? "Re-enter your password to reconnect this workspace." : null,
+  );
   const [recents, setRecents] = useState<RecentConnection[]>(() => listRecentConnections());
-  const [myConnections, setMyConnections] = useState<ServerConnection[]>([]);
-  const [loadingMine, setLoadingMine] = useState(true);
   const [sshAuthSessionId, setSshAuthSessionId] = useState<string | null>(null);
   const [pendingConnect, setPendingConnect] = useState<{
     label: string;
@@ -38,6 +53,14 @@ export function ConnectionPage(): JSX.Element {
     username: string;
     remotePath: string;
   } | null>(null);
+
+  useEffect(() => {
+    if (!prefill) return;
+    setLabel(prefill.label);
+    const portPart = prefill.port === 22 ? "" : `-p ${prefill.port} `;
+    setSshCommand(`ssh ${portPart}${prefill.username}@${prefill.host}`);
+    setRemotePath(prefill.remotePath);
+  }, [prefill]);
 
   const pollSshAuth = useCallback(async () => {
     if (!sshAuthSessionId) throw new Error("no auth session");
@@ -51,25 +74,6 @@ export function ConnectionPage(): JSX.Element {
     },
     [sshAuthSessionId],
   );
-
-  // Pull the server-side list of workspaces the caller belongs to. Quietly
-  // tolerates the Phase 1 case where the endpoint returns an empty list.
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const list = await listMyConnections();
-        if (!cancelled) setMyConnections(list);
-      } catch {
-        if (!cancelled) setMyConnections([]);
-      } finally {
-        if (!cancelled) setLoadingMine(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const parsed = useMemo(() => parseSshCommand(sshCommand), [sshCommand]);
 
@@ -150,108 +154,19 @@ export function ConnectionPage(): JSX.Element {
     }
   };
 
-  const onOpenExisting = async (entry: ServerConnection): Promise<void> => {
-    if (entry.isOpen) {
-      navigate(`/workspace/${entry.id}`, {
-        state: { label: entry.label, remoteRoot: entry.remotePath },
-      });
-      return;
-    }
-    if (entry.canRevive) {
-      try {
-        setBusy(true);
-        const res = await reopenConnection(entry.id);
-        navigate(`/workspace/${entry.id}`, {
-          state: { label: entry.label, remoteRoot: res.remoteRoot ?? entry.remotePath },
-        });
-        return;
-      } catch (err) {
-        setError(`Could not reopen: ${err instanceof Error ? err.message : String(err)}`);
-      } finally {
-        setBusy(false);
-      }
-    }
-    // Either secret-at-rest isn't configured or we don't own the secret —
-    // pre-fill the form so the user can re-enter the password and rebuild.
-    setLabel(entry.label);
-    const portPart = entry.port === 22 ? "" : `-p ${entry.port} `;
-    setSshCommand(`ssh ${portPart}${entry.username}@${entry.host}`);
-    setRemotePath(entry.remotePath);
-    setPassword("");
-    setPrivateKey("");
-    setError("Workspace is not open on the server. Re-enter your password and click Connect.");
-  };
-
-  const onForgetServer = async (entry: ServerConnection): Promise<void> => {
-    if (!confirm(`Delete the "${entry.label}" workspace from the server? Members will lose access.`)) {
-      return;
-    }
-    try {
-      await deleteConnection(entry.id);
-      setMyConnections((list) => list.filter((c) => c.id !== entry.id));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
   return (
     <div className="connection-page">
       <div className="panel">
-        <h1 style={{ marginTop: 0, fontSize: "1.25rem" }}>New remote connection</h1>
+        <p style={{ marginTop: 0 }}>
+          <Link to="/" className="ghost dashboard-back">
+            ← Back to dashboard
+          </Link>
+        </p>
+        <h1 style={{ marginTop: "0.5rem", fontSize: "1.25rem" }}>New connection</h1>
         <p className="hint" style={{ marginTop: "-0.25rem" }}>
-          The middleman opens an SFTP session over SSH to list and edit files under the remote folder you choose. Use only on
-          trusted networks; credentials are sent to your local Conduit process (not stored on disk in this prototype).
+          Open an SFTP session over SSH to edit files on a remote host. Password logins support Duo / 2FA.
         </p>
 
-        {loadingMine ? null : myConnections.length > 0 ? (
-          <div className="field">
-            <label>My workspaces</label>
-            <ul className="recent-connections">
-              {myConnections.map((entry) => (
-                <li key={entry.id}>
-                  <button
-                    type="button"
-                    className="recent-reuse"
-                    onClick={() => void onOpenExisting(entry)}
-                    title={
-                      entry.isOpen
-                        ? "Open this workspace"
-                        : entry.canRevive
-                          ? "Reopen using the stored SSH credentials"
-                          : "Pre-fill the form to reconnect"
-                    }
-                  >
-                    <span className="recent-label">
-                      {entry.label} {entry.isOwner ? <small style={{ color: "var(--muted)" }}>(owner)</small> : null}
-                      {entry.isOpen ? null : (
-                        <small style={{ color: entry.canRevive ? "var(--ctp-green)" : "var(--ctp-peach)" }}>
-                          {entry.canRevive ? " · click to revive" : " · closed"}
-                        </small>
-                      )}
-                    </span>
-                    <span className="recent-target">
-                      {entry.username}@{entry.host}
-                      {entry.port === 22 ? "" : `:${entry.port}`} • {entry.remotePath}
-                    </span>
-                  </button>
-                  {entry.isOwner ? (
-                    <button
-                      type="button"
-                      className="ghost recent-forget"
-                      onClick={() => void onForgetServer(entry)}
-                      title="Delete this workspace (cannot be undone)"
-                    >
-                      Delete
-                    </button>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-            <div className="hint">
-              Workspaces you own or have been invited to. Closed ones need a fresh SSH connect to reopen.
-            </div>
-          </div>
-        ) : null}
         {recents.length > 0 ? (
           <div className="field">
             <label>Recent connections</label>
@@ -262,7 +177,7 @@ export function ConnectionPage(): JSX.Element {
                     type="button"
                     className="recent-reuse"
                     onClick={() => onReuse(entry)}
-                    title="Fill the form below with these details (you'll still need to re-enter the password)"
+                    title="Fill the form with these details (re-enter password below)"
                   >
                     <span className="recent-label">{entry.label}</span>
                     <span className="recent-target">
@@ -281,11 +196,9 @@ export function ConnectionPage(): JSX.Element {
                 </li>
               ))}
             </ul>
-            <div className="hint">
-              Passwords and private keys are never saved. Click an entry to pre-fill the form, then enter your secret below.
-            </div>
           </div>
         ) : null}
+
         <form onSubmit={(e) => void onSubmit(e)}>
           <div className="field">
             <label htmlFor="label">Connection name (optional)</label>
@@ -345,10 +258,6 @@ export function ConnectionPage(): JSX.Element {
               placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
               spellCheck={false}
             />
-            <div className="hint" style={{ marginTop: "0.5rem" }}>
-              Auth tips: password logins support <strong>Duo / 2FA</strong> via keyboard-interactive prompts.
-              With no password/key, the middleman uses your OpenSSH agent if <code>SSH_AUTH_SOCK</code> is set.
-            </div>
           </div>
           {error ? <div className="error">{error}</div> : null}
           <button type="submit" className="primary" disabled={busy || !parsed} style={{ marginTop: "0.75rem" }}>

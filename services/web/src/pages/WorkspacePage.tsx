@@ -5,8 +5,8 @@ import { MembersPanel } from "../components/MembersPanel";
 import { TerminalPanel } from "../components/TerminalPanel";
 import {
   closeDocument,
+  closeConnectionSession,
   createFile,
-  deleteConnection,
   deleteFile,
   openDocument,
   fetchTree,
@@ -44,6 +44,7 @@ export function WorkspacePage(): JSX.Element {
   const [tabs, setTabs] = useState<EditorTab[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [disconnectError, setDisconnectError] = useState<string | null>(null);
   const [connectionLost, setConnectionLost] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
 
@@ -399,12 +400,13 @@ export function WorkspacePage(): JSX.Element {
       navigate("/");
       return;
     }
+    setDisconnectError(null);
     try {
-      await deleteConnection(id);
-    } catch {
-      /* still navigate home */
+      await closeConnectionSession(id);
+      navigate("/");
+    } catch (err) {
+      setDisconnectError(err instanceof Error ? err.message : String(err));
     }
-    navigate("/");
   };
 
   const toggleDir = (dirPath: string): void => {
@@ -440,7 +442,7 @@ export function WorkspacePage(): JSX.Element {
       <div className="editor-empty editor-empty-error" style={{ padding: "2rem", flexDirection: "column", gap: "1rem" }}>
         <div>This SSH connection no longer exists on the server (middleman was restarted).</div>
         <button type="button" className="primary" onClick={() => navigate("/")}>
-          Back to connections
+          Back to dashboard
         </button>
       </div>
     );
@@ -463,6 +465,11 @@ export function WorkspacePage(): JSX.Element {
               Disconnect
             </button>
           </div>
+          {disconnectError ? (
+            <div className="error" style={{ marginTop: "0.5rem", fontSize: "0.8rem" }}>
+              {disconnectError}
+            </div>
+          ) : null}
         </div>
         <div className="tree">
           <DirBranch

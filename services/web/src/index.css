@@ -48,11 +48,105 @@ body {
 
 .app-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  justify-content: space-between;
   gap: 0.75rem;
   padding: 0.75rem 1.25rem;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
+}
+
+.app-header-left,
+.app-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.app-header-logo {
+  text-decoration: none;
+  color: inherit;
+}
+
+.app-header-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.app-header-nav a {
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.app-header-nav a:hover {
+  color: var(--text);
+  background: var(--ctp-surface0);
+}
+
+.app-header-user {
+  font-size: 0.85rem;
+  color: var(--muted);
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-header-login {
+  text-decoration: none;
+  font-size: 0.85rem;
+}
+
+.dashboard-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.dashboard-new-btn {
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.dashboard-section {
+  margin-top: 1.25rem;
+}
+
+.dashboard-section-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.dashboard-empty {
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
+.dashboard-empty p {
+  color: var(--muted);
+  margin-bottom: 1rem;
+}
+
+.dashboard-back {
+  text-decoration: none;
+  font-size: 0.85rem;
+  padding: 0;
+}
+
+.recent-meta {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 0.15rem;
 }
 
 .logo {
@@ -125,13 +219,21 @@ button {
   padding: 0.55rem 1rem;
 }
 
-button.primary {
+button.primary,
+a.primary {
   background: #454c8a;
   border-color: var(--ctp-blue);
   color: var(--ctp-base);
+  display: inline-block;
+  padding: 0.55rem 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  text-decoration: none;
+  font: inherit;
 }
 
-button.primary:not(:disabled) {
+button.primary:not(:disabled),
+a.primary:hover {
   background: var(--ctp-blue);
   color: var(--ctp-base);
 }

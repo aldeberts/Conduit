@@ -1,12 +1,10 @@
 import type { ReactNode } from "react";
+import { AppHeader } from "./components/AppHeader";
 
 export function App({ children }: { children: ReactNode }): JSX.Element {
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <span className="logo">Conduit</span>
-        <span className="tag">browser lab</span>
-      </header>
+      <AppHeader />
       <main className="app-main">{children}</main>
     </div>
   );

@@ -1,100 +1,129 @@
 # Conduit
 
-Durable **middleman** for collaborative remote dev: merged edits with **save → flush** to a real filesystem, and (later) a **shared PTY** on the real host.
+Durable **middleman** for collaborative remote dev: merged edits with **save → flush** to a real filesystem, plus a shared terminal on the remote host.
 
 This repo is a **TypeScript monorepo** (`npm` workspaces).
 
-See **[ROADMAP.md](ROADMAP.md)** for the phased plan (document model → Yjs/WS → durability → IDE → PTY).
+See **[ROADMAP.md](ROADMAP.md)** for the phased plan.
 
-## Prerequisites
+## Using Conduit at [conduit.aldeneberts.com](https://conduit.aldeneberts.com)
+
+The hosted instance is a browser workspace backed by SSH/SFTP on your remote machines.
+
+### Sign in
+
+1. Open **https://conduit.aldeneberts.com**
+2. **Register** the first time (one account per email), or **Sign in** if you already have an account.
+3. You land on the **Dashboard** — your saved workspaces and whether each SSH session is active or closed.
+
+Use **Log out** in the top bar when you are done.
+
+### Open a remote workspace
+
+1. On the dashboard, click **New connection** (or **Create your first connection** if the list is empty).
+2. Fill in:
+   - **SSH command** — e.g. `ssh ajeberts@rice.stanford.edu` (optional `-p 2222` for a non-default port)
+   - **Remote folder** — absolute path on the server, e.g. `/home/ajeberts/project`
+   - **Password** — required for password + Duo hosts; not stored in the browser after connect
+3. Click **Connect**.
+4. If the host uses **Duo / 2FA**, a modal shows the same prompts as Terminal. Click **1. Duo Push** (or type the option number) and approve on your phone.
+5. When connected, you are taken to the **workspace**: file tree, collaborative editor, terminal, and members panel.
+
+### Dashboard actions
+
+| Status | What to do |
+|--------|------------|
+| **Active** | Click the row to open the editor (SSH session is already open on the server). |
+| **Closed · can reopen** | Click to reopen using credentials saved on the server (no password prompt). |
+| **Closed** | Click to **Reconnect** — the form is pre-filled; enter your password (and Duo again if needed). |
+
+In a workspace, **Disconnect** ends the SSH session and returns you to the dashboard; the workspace stays listed under **Past sessions** (use **Reopen** if credentials were saved). **Delete** on the dashboard removes the workspace entirely (owners only).
+
+Owners can **Delete** a workspace from the server; that removes it for all members.
+
+### Tips
+
+- Passwords and private keys are sent only to the Conduit server for the SSH handshake; they are not kept in browser localStorage.
+- If a workspace shows as closed after a server restart, use **Reconnect** or **Reopen** from the dashboard.
+- For Stanford/Rice-style logins, use your normal SSH password; Duo is handled in the connect modal.
+
+Server operators: see **[deploy/README.md](deploy/README.md)** for DigitalOcean/Caddy/systemd setup.
+
+---
+
+## Local development
+
+### Prerequisites
 
 - Node.js **20+**
 
-## Install
-
-From the repo root:
+### Install
 
 ```bash
 npm install
 ```
 
-## Browser workspace (SSH / SFTP lab UI)
+### Run locally
 
-Run **middleman** and the **web** dev server together. The web app proxies `/api` to middleman on **port 3333** (use the default `PORT` or adjust `services/web/vite.config.ts`).
+Middleman (API + WebSocket) and the web UI together — the UI proxies `/api` to port **3333**:
 
 ```bash
 npm run dev:all
 ```
 
-Open `http://127.0.0.1:5174/`: enter an SSH command (e.g. `ssh ubuntu@your-host`), an **absolute remote path** to that folder, optional password or PEM key, then **Connect**. The sidebar lists the remote tree; open a file to edit and **Save** writes back over SFTP.
-
-**Security:** credentials go to your **local** middleman only; sessions are in-memory until disconnect or server restart. Do not expose the middleman to the public internet without auth and TLS.
-
-## Run the middleman (dev)
-
-```bash
-npm run dev
-```
+Open **http://127.0.0.1:5174/**. Without `API_TOKEN` in the environment, auth is off and you go straight to the dashboard.
 
 Optional env (see [`.env.example`](.env.example)):
 
 ```bash
-PORT=3333 REAL_ROOT=./real_shadow npm run dev
+PORT=3333 DATA_DIR=./data CONDUIT_SECRET_KEY=... npm run dev
 ```
 
-## Document API (Phase A)
+With auth enabled (`API_TOKEN` set on the server), register/sign in at `/login` the same way as production.
 
-Open files are **owned by the middleman** (buffer, dirty flag, revision, remote mtime/size snapshot):
+### Local connect flow
+
+1. **New connection** — SSH command, remote path, password or PEM key.
+2. Browse the remote tree; open files to edit; **Save** writes over SFTP.
+3. Edits sync over **WebSocket** (`/api/ws`) via **Yjs** when collaboration is active.
+
+**Security:** do not expose an unauthenticated middleman to the public internet.
+
+## Document API
+
+Open files are owned by the middleman (buffer, dirty flag, revision, remote mtime/size):
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/api/connections/:id/documents/open` | Load from SFTP (or bump ref if already open) |
-| `GET` | `/api/connections/:id/documents/one?path=` | Read current server document |
-| `PATCH` | `/api/connections/:id/documents` | Update buffer (`{ path, content }`) |
-| `POST` | `/api/connections/:id/documents/save` | Flush to SFTP (409 if disk changed) |
-| `POST` | `/api/connections/:id/documents/refresh` | Reload from SFTP (`force` discards dirty) |
+| `POST` | `/api/connections/:id/documents/open` | Load from SFTP |
+| `GET` | `/api/connections/:id/documents/one?path=` | Read document |
+| `PATCH` | `/api/connections/:id/documents` | Update buffer |
+| `POST` | `/api/connections/:id/documents/save` | Flush to SFTP |
+| `POST` | `/api/connections/:id/documents/refresh` | Reload from SFTP |
 | `POST` | `/api/connections/:id/documents/close` | Release document |
 | `GET` | `/api/connections/:id/documents` | List open documents |
 
-The web UI opens documents over HTTP, then syncs edits over **WebSocket** (`/api/ws`) via **Yjs**. Legacy `GET/PUT .../file` still exists for scripts.
-
-### WebSocket (Phase B)
-
-Connect to `ws://127.0.0.1:3333/api/ws` (optional `?token=` if `API_TOKEN` is set). Messages: `subscribe`, `unsubscribe`, `sync` — see `@conduit/shared` types in `packages/shared/src/ws.ts`.
-
-### Persistence & auth (Phase C)
-
-- `DATA_DIR` — Yjs snapshots written under `./data/conduit` (default).
-- `API_TOKEN` — when set, require `Authorization: Bearer <token>` (or `X-Conduit-Token`) on HTTP APIs; WebSocket uses **`?token=`** on the socket URL (the web app passes this automatically when `VITE_API_TOKEN` is set).
-- Web: set `VITE_API_TOKEN` in `.env` (same value as `API_TOKEN`) so REST calls send `Authorization` and document sync adds `?token=` to `/api/ws`.
+WebSocket contract: [`docs/protocol.md`](docs/protocol.md).
 
 ## Smoke test
 
-Health:
-
 ```bash
 curl -s http://127.0.0.1:3333/health
-```
-
-Dev flush (writes under `REAL_ROOT`):
-
-```bash
-curl -s -X POST http://127.0.0.1:3333/dev/flush \
-  -H 'content-type: application/json' \
-  -d '{"path":"demo/hello.txt","text":"hello from conduit"}'
 ```
 
 ## Packages
 
 | Package | Role |
 |--------|------|
-| [`@conduit/shared`](packages/shared) | Cross-service types and constants. |
-| [`@conduit/middleman`](services/middleman) | HTTP API: health, dev flush, SSH/SFTP, **server-owned documents** (`/api/connections/:id/documents/*`). |
-| [`@conduit/web`](services/web) | Vite + React lab UI: connect over SSH, browse remote tree, edit text files. |
+| [`@conduit/shared`](packages/shared) | Cross-service types and constants |
+| [`@conduit/client`](packages/client) | Browser/IDE client library |
+| [`@conduit/middleman`](services/middleman) | HTTP API, SSH/SFTP, documents, auth, WebSocket |
+| [`@conduit/web`](services/web) | Vite + React UI |
 
 ## Layout
 
-- `services/middleman` — collaboration gateway process (REST + SFTP over SSH for the web UI).
-- `services/web` — browser lab client (Vite + React).
-- `packages/shared` — shared TypeScript surface between services.
-- `real_shadow/` — default local target for on-save flushes (Phase 0).
+- `services/middleman` — collaboration gateway (REST + SFTP over SSH)
+- `services/web` — browser client
+- `packages/shared`, `packages/client` — shared libraries
+- `deploy/` — production deploy scripts and Caddy config
+- `extensions/vscode/` — VS Code extension (dev install from folder)

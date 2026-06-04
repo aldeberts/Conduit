@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { App } from "./App";
 import { RequireAuth } from "./components/RequireAuth";
 import { ConnectionPage } from "./pages/ConnectionPage";
+import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
 import { WorkspacePage } from "./pages/WorkspacePage";
 import "./index.css";
@@ -16,6 +17,14 @@ createRoot(document.getElementById("root")!).render(
           <Route path="/login" element={<LoginPage />} />
           <Route
             path="/"
+            element={
+              <RequireAuth>
+                <DashboardPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/connect/new"
             element={
               <RequireAuth>
                 <ConnectionPage />

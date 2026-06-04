@@ -1,23 +1,22 @@
 import { getApiToken } from "./authToken";
 
-function authHeaders(): Record<string, string> {
-  const h: Record<string, string> = { "content-type": "application/json" };
-  const token = getApiToken();
-  if (token) {
-    h.authorization = `Bearer ${token}`;
-  }
-  return h;
-}
-
 /** All browser API calls send session cookies (email/password login flow). */
 function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const headers: Record<string, string> = {
+    ...(init.headers as Record<string, string> | undefined),
+  };
+  const token = getApiToken();
+  if (token) {
+    headers.authorization = `Bearer ${token}`;
+  }
+  // Fastify rejects application/json with an empty body (DELETE, POST close, etc.).
+  if (init.body != null && init.body !== "") {
+    headers["content-type"] ??= "application/json";
+  }
   return fetch(input, {
     credentials: "include",
     ...init,
-    headers: {
-      ...authHeaders(),
-      ...(init.headers as Record<string, string> | undefined),
-    },
+    headers,
   });
 }
 
@@ -185,7 +184,19 @@ export async function deleteConnection(connectionId: string): Promise<void> {
     method: "DELETE",
   });
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
+    const data = await parseJson(res);
+    throw apiError(data, res.status);
+  }
+}
+
+/** Ends the SSH session but keeps the workspace on your dashboard (for reopen). */
+export async function closeConnectionSession(connectionId: string): Promise<void> {
+  const res = await apiFetch(`/api/connections/${encodeURIComponent(connectionId)}/close`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const data = await parseJson(res);
+    throw apiError(data, res.status);
   }
 }
 

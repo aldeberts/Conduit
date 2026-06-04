@@ -1,13 +1,12 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { Navigate, useLocation } from "react-router-dom";
-import { hasAnyToken, probeServerHealth, probeSession } from "../lib/authToken";
+import { probeServerHealth, probeSession } from "../lib/authToken";
 
 type Status = "checking" | "ok" | "needs-login";
 
 /**
- * Gate every authenticated route. Shows nothing while we ask the server
- * whether auth is even required (during local dev with no `API_TOKEN`, we
- * skip the prompt entirely).
+ * Gate authenticated routes. Skips login when the server has no auth configured
+ * (typical local dev). Otherwise requires a valid session cookie.
  */
 export function RequireAuth({ children }: { children: ReactElement }): ReactElement {
   const location = useLocation();
@@ -19,11 +18,6 @@ export function RequireAuth({ children }: { children: ReactElement }): ReactElem
       const health = await probeServerHealth();
       if (cancelled) return;
       if (!health.authRequired) {
-        setStatus("ok");
-        return;
-      }
-      // Token users (admin/personal token flow) can proceed immediately.
-      if (hasAnyToken()) {
         setStatus("ok");
         return;
       }
