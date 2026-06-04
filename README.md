@@ -22,7 +22,7 @@ Use **Log out** in the top bar when you are done.
 
 1. On the dashboard, click **New connection** (or **Create your first connection** if the list is empty).
 2. Fill in:
-   - **SSH command** — e.g. `ssh ajeberts@rice.stanford.edu` (optional `-p 2222` for a non-default port)
+   - **SSH command** — e.g. `ssh ...` (optional `-p 2222` for a non-default port)
    - **Remote folder** — absolute path on the server, e.g. `/home/ajeberts/project`
    - **Password** — required for password + Duo hosts; not stored in the browser after connect
 3. Click **Connect**.
