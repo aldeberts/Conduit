@@ -8,10 +8,11 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/auth.test.ts src/documents/yjs.test.ts src/documents/persistence.test.ts src/documents/registry.sync.test.ts src/documents/collab.twoClients.test.ts src/documents/collab.twoSockets.test.ts src/api/files.test.ts"
+    "test": "node --import tsx --no-warnings=ExperimentalWarning --test src/auth.test.ts src/auth/passwords.test.ts src/auth/secrets.test.ts src/documents/yjs.test.ts src/documents/persistence.test.ts src/documents/registry.sync.test.ts src/documents/collab.twoClients.test.ts src/documents/collab.twoSockets.test.ts src/documents/wsOps.test.ts src/api/files.test.ts src/api/auth.test.ts src/api/tenancy.test.ts src/db/db.test.ts src/ssh/pendingAuth.test.ts src/ssh/keyboardInteractive.test.ts"
   },
   "dependencies": {
     "@conduit/shared": "*",
+    "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.2.0",
     "@fastify/websocket": "^11.2.0",
     "fastify": "^5.2.1",
@@ -23,7 +24,7 @@
     "@types/ssh2": "^1.15.5",
     "@types/ws": "^8.18.1",
     "tsx": "^4.19.2",
-    "ws": "^8.18.1",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "ws": "^8.18.1"
   }
 }

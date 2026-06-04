@@ -442,7 +442,97 @@ export function unsubscribeDocument(connectionId: string, path: string, subscrib
   const doc = documents.get(docKey(connectionId, path));
   if (doc) {
     doc.subscribers.delete(subscriberId);
+    awarenessCache.get(docKey(connectionId, path))?.delete(subscriberId);
   }
+}
+
+/**
+ * Per-path cache of the most recent awareness payload from each subscriber.
+ * When a new tab subscribes the server replays everything in here so the
+ * joiner sees existing cursors instantly (without waiting up to 30s for the
+ * y-protocols Awareness self-renew).
+ *
+ * Map<docKey, Map<subscriberId, base64-update>>.
+ */
+const awarenessCache = new Map<string, Map<string, string>>();
+
+/** Forwards an awareness payload from `subscriberId` to every other subscriber
+ * of the same (connection, path) and remembers it for late joiners. */
+export function relayAwareness(
+  connectionId: string,
+  path: string,
+  subscriberId: string,
+  updateB64: string,
+): void {
+  const key = docKey(connectionId, path);
+  let cache = awarenessCache.get(key);
+  if (!cache) {
+    cache = new Map();
+    awarenessCache.set(key, cache);
+  }
+  cache.set(subscriberId, updateB64);
+  const doc = documents.get(key);
+  if (!doc) {
+    return;
+  }
+  const payload: WsServerMessage = {
+    type: "awareness",
+    connectionId,
+    path,
+    update: updateB64,
+  };
+  for (const [id, sub] of doc.subscribers) {
+    if (id !== subscriberId) {
+      sub.send(payload);
+    }
+  }
+}
+
+/** Returns the cached awareness payloads for everyone except `excludeId`,
+ * so the WS handler can replay them to a freshly-subscribed tab. */
+export function awarenessSnapshotsForNewSubscriber(
+  connectionId: string,
+  path: string,
+  excludeId: string,
+): string[] {
+  const cache = awarenessCache.get(docKey(connectionId, path));
+  if (!cache) {
+    return [];
+  }
+  const out: string[] = [];
+  for (const [id, raw] of cache) {
+    if (id !== excludeId) {
+      out.push(raw);
+    }
+  }
+  return out;
+}
+
+/** Marks every subscriber's tab as needing to close. Used on delete/rename so
+ * other clients drop the doc instead of editing into the void. */
+export function evictDocument(
+  connectionId: string,
+  path: string,
+  reason: "deleted" | "renamed" | "evicted",
+): void {
+  const key = docKey(connectionId, path);
+  const doc = documents.get(key);
+  if (doc) {
+    const payload: WsServerMessage = {
+      type: "doc_evicted",
+      connectionId,
+      path,
+      reason,
+    };
+    for (const sub of doc.subscribers.values()) {
+      sub.send(payload);
+    }
+    if (doc.persistTimer) {
+      clearTimeout(doc.persistTimer);
+    }
+    documents.delete(key);
+  }
+  awarenessCache.delete(key);
 }
 
 export async function applyDocumentSync(

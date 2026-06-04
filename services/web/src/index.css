@@ -157,6 +157,86 @@ button.ghost {
   margin-top: 0.5rem;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-panel {
+  max-width: 520px;
+  width: 92vw;
+  max-height: 85vh;
+  overflow: auto;
+}
+
+.ssh-auth-modal {
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+.ssh-auth-terminal {
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  padding: 0.75rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  margin: 0 0 0.75rem;
+  min-height: 120px;
+  max-height: 260px;
+  overflow: auto;
+  resize: vertical;
+}
+
+.ssh-auth-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 0.25rem;
+}
+
+.ssh-auth-options .primary {
+  text-align: left;
+}
+
+.tabbar {
+  display: flex;
+  gap: 0.25rem;
+  margin: -0.25rem 0 0.85rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  padding: 0.35rem 0.7rem;
+  border-radius: 6px 6px 0 0;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab.active {
+  color: var(--text);
+  border-color: var(--border);
+  border-bottom-color: var(--panel);
+  background: var(--panel);
+  position: relative;
+  bottom: -1px;
+}
+
 .ok {
   color: var(--ok);
   font-size: 0.85rem;
@@ -453,6 +533,109 @@ button.ghost {
   background: rgba(30, 30, 46, 0.85);
   color: var(--muted);
   font-size: 0.9rem;
+  pointer-events: none;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 1000;
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem 0;
+  min-width: 12rem;
+  background: #1e1e2e;
+  border: 1px solid rgba(180, 190, 254, 0.25);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.context-menu li {
+  margin: 0;
+}
+
+.context-menu-item {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--fg, #cdd6f4);
+  text-align: left;
+  padding: 0.4rem 0.8rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.context-menu-item:hover {
+  background: rgba(180, 190, 254, 0.12);
+}
+
+.context-menu-item.danger {
+  color: #f38ba8;
+}
+
+.recent-connections {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.recent-connections li {
+  display: flex;
+  align-items: stretch;
+  gap: 0.35rem;
+}
+
+.recent-reuse {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  background: rgba(108, 112, 134, 0.12);
+  color: var(--fg, #cdd6f4);
+  border: 1px solid rgba(108, 112, 134, 0.3);
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+  cursor: pointer;
+  font: inherit;
+}
+
+.recent-reuse:hover {
+  background: rgba(108, 112, 134, 0.22);
+  border-color: rgba(180, 190, 254, 0.4);
+}
+
+.recent-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.recent-target {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.recent-forget {
+  align-self: stretch;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+/* yCollab remote-cursor labels: keep the name pill always visible (the default
+ * fades it to opacity 0 unless hovered, which is unhelpful when you can't easily
+ * hover a remote cursor). Also use the editor's font for legibility. */
+.cm-ySelectionInfo {
+  opacity: 1 !important;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace) !important;
+  font-size: 0.7rem !important;
+  font-weight: 600 !important;
+  padding: 1px 4px !important;
+  border-radius: 3px;
+  color: #1e1e2e !important;
   pointer-events: none;
 }
 

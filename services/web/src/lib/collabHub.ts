@@ -1,6 +1,6 @@
 import type { WsServerMessage } from "@conduit/shared";
 import * as Y from "yjs";
-import { DocumentSyncCore, uint8ToBase64 } from "./documentSyncCore.js";
+import { DocumentSyncCore, uint8ToBase64 } from "@conduit/client";
 
 /**
  * In-memory hub simulating the middleman for two browser tabs (two WS connections).

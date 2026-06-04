@@ -1,0 +1,87 @@
+{
+  "name": "conduit-vscode",
+  "displayName": "Conduit",
+  "description": "Edit Conduit workspaces inside VS Code / Cursor with live multi-user collaboration.",
+  "publisher": "conduit",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "Conduit",
+      "properties": {
+        "conduit.serverUrl": {
+          "type": "string",
+          "default": "https://conduit.example.com",
+          "description": "Base URL of your Conduit server (e.g. https://conduit.example.com)."
+        },
+        "conduit.token": {
+          "type": "string",
+          "default": "",
+          "description": "Personal access token issued by the Conduit web UI (Settings → Personal access tokens), or the admin API token."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "conduit.signIn",
+        "title": "Conduit: Sign In"
+      },
+      {
+        "command": "conduit.openConnection",
+        "title": "Conduit: Open Workspace"
+      },
+      {
+        "command": "conduit.openFile",
+        "title": "Conduit: Open File…"
+      },
+      {
+        "command": "conduit.saveActive",
+        "title": "Conduit: Save Active Document"
+      },
+      {
+        "command": "conduit.refreshActive",
+        "title": "Conduit: Refresh Active Document from Disk"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "conduit.saveActive",
+        "key": "ctrl+alt+s",
+        "mac": "cmd+alt+s",
+        "when": "editorTextFocus && resourceScheme == conduit"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "conduit.workspaces",
+          "name": "Conduit Workspaces"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "vscode:prepublish": "npm run build"
+  },
+  "dependencies": {
+    "@conduit/client": "*",
+    "ws": "^8.21.0",
+    "yjs": "^13.6.23"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.5",
+    "@types/vscode": "^1.90.0",
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.3"
+  }
+}

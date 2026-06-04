@@ -1,5 +1,5 @@
 import type { WsClientMessage, WsServerMessage } from "@conduit/shared";
-import { dispatchMessage, queueSubscribe, socketBusy, WS_OPEN } from "./wsPoolCore.js";
+import { dispatchMessage, queueSubscribe, socketBusy, WS_OPEN } from "@conduit/client";
 
 function wsUrl(token?: string): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -325,6 +325,41 @@ export function sendWsSync(
     }
   }
   send(pool, { type: "sync", connectionId, path, update });
+}
+
+export function sendWsAwareness(
+  connectionId: string,
+  path: string,
+  update: string,
+  token?: string,
+): void {
+  const pool = getPool(connectionId, token);
+  // Awareness is intentionally fire-and-forget: if the socket is dead the
+  // y-protocols 30s self-renew will re-emit once we reconnect.
+  send(pool, { type: "awareness", connectionId, path, update });
+}
+
+export function sendWsSave(connectionId: string, path: string, token?: string): boolean {
+  const pool = getPool(connectionId, token);
+  if (pool.ws?.readyState !== WebSocket.OPEN) {
+    return false;
+  }
+  send(pool, { type: "save", connectionId, path });
+  return true;
+}
+
+export function sendWsRefresh(
+  connectionId: string,
+  path: string,
+  force: boolean,
+  token?: string,
+): boolean {
+  const pool = getPool(connectionId, token);
+  if (pool.ws?.readyState !== WebSocket.OPEN) {
+    return false;
+  }
+  send(pool, { type: "refresh", connectionId, path, force });
+  return true;
 }
 
 export function sendPtyInput(connectionId: string, dataB64: string, token?: string): void {

@@ -6,7 +6,7 @@ import {
   DocumentSyncCore,
   incrementalInsertAfterSnapshot,
   uint8ToBase64,
-} from "./documentSyncCore.js";
+} from "./documentSync.js";
 
 const CONN = "conn-1";
 const PATH = "src/a.ts";
@@ -137,4 +137,83 @@ test("empty subscribed update is a no-op (does not wipe content)", () => {
     dirty: false,
   });
   assert.equal(tab.ytext.toString(), "important content");
+});
+
+test("op_result success delivers (op=save, ok=true) to onOpResult", () => {
+  const results: { op: string; ok: boolean; error?: string }[] = [];
+  const tab = new DocumentSyncCore(PATH, {
+    onOpResult: (op, ok, error) => results.push({ op, ok, error }),
+  }, () => {});
+  tab.handleServerMessage(subscribedMsg("data"));
+  tab.handleServerMessage({
+    type: "op_result",
+    connectionId: CONN,
+    path: PATH,
+    op: "save",
+    ok: true,
+  });
+  assert.deepEqual(results, [{ op: "save", ok: true, error: undefined }]);
+});
+
+test("op_result failure surfaces error via onOpResult", () => {
+  const results: { op: string; ok: boolean; error?: string }[] = [];
+  const tab = new DocumentSyncCore(PATH, {
+    onOpResult: (op, ok, error) => results.push({ op, ok, error }),
+  }, () => {});
+  tab.handleServerMessage(subscribedMsg("data"));
+  tab.handleServerMessage({
+    type: "op_result",
+    connectionId: CONN,
+    path: PATH,
+    op: "refresh",
+    ok: false,
+    error: "remote_conflict",
+  });
+  assert.deepEqual(results, [{ op: "refresh", ok: false, error: "remote_conflict" }]);
+});
+
+test("doc_evicted surfaces reason via onDocEvicted", () => {
+  const reasons: string[] = [];
+  const tab = new DocumentSyncCore(PATH, {
+    onDocEvicted: (reason) => reasons.push(reason),
+  }, () => {});
+  tab.handleServerMessage(subscribedMsg("data"));
+  tab.handleServerMessage({
+    type: "doc_evicted",
+    connectionId: CONN,
+    path: PATH,
+    reason: "deleted",
+  });
+  assert.deepEqual(reasons, ["deleted"]);
+});
+
+test("awareness updates fire onAwarenessUpdate with the raw payload", () => {
+  const updates: string[] = [];
+  const tab = new DocumentSyncCore(PATH, {
+    onAwarenessUpdate: (b64) => updates.push(b64),
+  }, () => {});
+  tab.handleServerMessage(subscribedMsg("data"));
+  tab.handleServerMessage({
+    type: "awareness",
+    connectionId: CONN,
+    path: PATH,
+    update: "AAAA",
+  });
+  assert.deepEqual(updates, ["AAAA"]);
+});
+
+test("messages for a different path are ignored even when type matches", () => {
+  const results: { op: string }[] = [];
+  const tab = new DocumentSyncCore(PATH, {
+    onOpResult: (op) => results.push({ op }),
+  }, () => {});
+  tab.handleServerMessage(subscribedMsg("data"));
+  tab.handleServerMessage({
+    type: "op_result",
+    connectionId: CONN,
+    path: "different/path.ts",
+    op: "save",
+    ok: true,
+  });
+  assert.equal(results.length, 0);
 });

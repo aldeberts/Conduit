@@ -1,4 +1,5 @@
-import { CollaborativeEditor } from "./CollaborativeEditor";
+import { useCallback, useRef } from "react";
+import { CollaborativeEditor, type CollabActions } from "./CollaborativeEditor";
 
 export type EditorTab = {
   path: string;
@@ -24,8 +25,12 @@ type Props = {
   onCloseTab: (path: string) => void;
   onRevision: (path: string, revision: number, dirty: boolean) => void;
   onMarkDirty: (path: string) => void;
-  onSave: () => void;
-  onRefresh: (force: boolean) => void;
+  /** Called when the server replies to a save / refresh op for `path`. */
+  onOpResult: (path: string, op: "save" | "refresh", ok: boolean, error?: string) => void;
+  /** Server told us a document is gone; close its tab. */
+  onDocEvicted: (path: string, reason: "deleted" | "renamed" | "evicted") => void;
+  /** Called when Save is clicked while no editor is mounted (shouldn't happen, but defensive). */
+  onSocketUnavailable: () => void;
   saveError: string | null;
 };
 
@@ -38,13 +43,61 @@ export function EditorWorkbench({
   onCloseTab,
   onRevision,
   onMarkDirty,
-  onSave,
-  onRefresh,
+  onOpResult,
+  onDocEvicted,
+  onSocketUnavailable,
   saveError,
 }: Props): JSX.Element {
   const active = tabs.find((t) => t.path === activePath) ?? null;
   const canSave = Boolean(active?.loaded && !active.loading && active.dirty);
   const loadedTabs = tabs.filter((t) => t.loaded && !t.loading && !t.loadError);
+
+  // Each mounted CollaborativeEditor registers its WS actions here keyed by
+  // path. Save / Reload / Revert buttons route to the active tab.
+  const actionsByPath = useRef(new Map<string, CollabActions>());
+
+  const registerActionsFor = useCallback(
+    (path: string) =>
+      (actions: CollabActions | null): void => {
+        if (actions) {
+          actionsByPath.current.set(path, actions);
+        } else {
+          actionsByPath.current.delete(path);
+        }
+      },
+    [],
+  );
+
+  const onSaveClick = useCallback((): void => {
+    if (!activePath) {
+      return;
+    }
+    const actions = actionsByPath.current.get(activePath);
+    if (!actions) {
+      onSocketUnavailable();
+      return;
+    }
+    if (!actions.save()) {
+      onSocketUnavailable();
+    }
+  }, [activePath, onSocketUnavailable]);
+
+  const onRefreshClick = useCallback(
+    (force: boolean): void => {
+      if (!activePath) {
+        return;
+      }
+      const actions = actionsByPath.current.get(activePath);
+      if (!actions) {
+        onSocketUnavailable();
+        return;
+      }
+      if (!actions.refresh(force)) {
+        onSocketUnavailable();
+      }
+    },
+    [activePath, onSocketUnavailable],
+  );
 
   return (
     <section className="editor-pane">
@@ -79,7 +132,7 @@ export function EditorWorkbench({
         <span className="path" title={active?.path}>
           {active?.path ?? "Select a file from the tree"}
         </span>
-        <button type="button" className="ghost" disabled={!active?.loaded} onClick={() => onRefresh(false)}>
+        <button type="button" className="ghost" disabled={!active?.loaded} onClick={() => onRefreshClick(false)}>
           Reload
         </button>
         <button
@@ -87,11 +140,11 @@ export function EditorWorkbench({
           className="ghost"
           disabled={!active?.loaded}
           title="Discard local edits and reload from disk"
-          onClick={() => onRefresh(true)}
+          onClick={() => onRefreshClick(true)}
         >
           Revert
         </button>
-        <button type="button" className="primary" disabled={!canSave} onClick={onSave}>
+        <button type="button" className="primary" disabled={!canSave} onClick={onSaveClick}>
           Save
         </button>
       </div>
@@ -118,6 +171,9 @@ export function EditorWorkbench({
                 apiToken={apiToken}
                 onRevision={(revision, dirty) => onRevision(tab.path, revision, dirty)}
                 onMarkDirty={() => onMarkDirty(tab.path)}
+                onOpResult={(op, ok, errorMsg) => onOpResult(tab.path, op, ok, errorMsg)}
+                onDocEvicted={(reason) => onDocEvicted(tab.path, reason)}
+                registerActions={registerActionsFor(tab.path)}
               />
             </div>
           ))

@@ -9,6 +9,12 @@ export type DocumentSyncCallbacks = {
   onRemoteContentChange?: () => void;
   onLocalEdit?: () => void;
   onError?: (message: string) => void;
+  /** Awareness payload (base64) from a remote tab on the same path. */
+  onAwarenessUpdate?: (updateB64: string) => void;
+  /** Result of a previously-issued save or refresh. */
+  onOpResult?: (op: "save" | "refresh", ok: boolean, error?: string) => void;
+  /** Document was removed server-side; the editor should close. */
+  onDocEvicted?: (reason: "deleted" | "renamed" | "evicted") => void;
 };
 
 export type OutboundSync = (updateB64: string) => void;
@@ -108,6 +114,22 @@ export class DocumentSyncCore {
       Y.applyUpdate(this.ydoc, base64ToUint8(msg.update), "remote");
       this.callbacks.onRemoteContentChange?.();
       this.callbacks.onState?.(msg.revision, msg.dirty);
+      return;
+    }
+
+    if (msg.type === "awareness") {
+      this.callbacks.onAwarenessUpdate?.(msg.update);
+      return;
+    }
+
+    if (msg.type === "op_result") {
+      this.callbacks.onOpResult?.(msg.op, msg.ok, msg.error);
+      return;
+    }
+
+    if (msg.type === "doc_evicted") {
+      this.callbacks.onDocEvicted?.(msg.reason);
+      return;
     }
   }
 

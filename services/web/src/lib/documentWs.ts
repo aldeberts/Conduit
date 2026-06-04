@@ -1,6 +1,12 @@
 import type { WsServerMessage } from "@conduit/shared";
-import { DocumentSyncCore, type DocumentSyncCallbacks } from "./documentSyncCore.js";
-import { sendWsSync, subscribeWsPath } from "./wsPool.js";
+import { DocumentSyncCore, type DocumentSyncCallbacks } from "@conduit/client";
+import {
+  sendWsAwareness,
+  sendWsRefresh,
+  sendWsSave,
+  sendWsSync,
+  subscribeWsPath,
+} from "./wsPool.js";
 
 export type { DocumentSyncCallbacks };
 
@@ -10,11 +16,13 @@ export type { DocumentSyncCallbacks };
 export class DocumentWsSync {
   private readonly core: DocumentSyncCore;
   private readonly connectionId: string;
+  private readonly path: string;
   private readonly token?: string;
   private unsubWs: (() => void) | null = null;
 
   constructor(connectionId: string, path: string, callbacks: DocumentSyncCallbacks = {}, token?: string) {
     this.connectionId = connectionId;
+    this.path = path;
     this.token = token;
     this.core = new DocumentSyncCore(path, callbacks, (update) => {
       sendWsSync(connectionId, path, update, token);
@@ -54,5 +62,21 @@ export class DocumentWsSync {
 
   enableSync(): void {
     this.core.enableSync();
+  }
+
+  /** Relays a y-protocols awareness payload to other subscribers on the same path. */
+  sendAwareness(updateB64: string): void {
+    sendWsAwareness(this.connectionId, this.path, updateB64, this.token);
+  }
+
+  /** Asks the server to flush the current buffer to remote storage.
+   * Returns false if the socket isn't open right now. */
+  save(): boolean {
+    return sendWsSave(this.connectionId, this.path, this.token);
+  }
+
+  /** Asks the server to reload the document from remote storage. */
+  refresh(force: boolean): boolean {
+    return sendWsRefresh(this.connectionId, this.path, force, this.token);
   }
 }

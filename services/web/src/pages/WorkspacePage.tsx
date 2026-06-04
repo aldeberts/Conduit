@@ -1,24 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { EditorWorkbench, type EditorTab } from "../components/EditorWorkbench";
+import { MembersPanel } from "../components/MembersPanel";
 import { TerminalPanel } from "../components/TerminalPanel";
 import {
   closeDocument,
   createFile,
   deleteConnection,
-  getDocument,
+  deleteFile,
   openDocument,
-  refreshDocument,
-  saveDocument,
   fetchTree,
+  renameFile,
   type DocumentState,
   type TreeEntry,
 } from "../lib/api";
+import { getApiToken } from "../lib/authToken";
 import { subscribeWsTree } from "../lib/wsPool";
 
 type LocationState = { label?: string; remoteRoot?: string } | null;
-
-const apiToken = import.meta.env.VITE_API_TOKEN as string | undefined;
 
 function docToTab(doc: DocumentState): EditorTab {
   return {
@@ -46,8 +45,14 @@ export function WorkspacePage(): JSX.Element {
   const [activePath, setActivePath] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [connectionLost, setConnectionLost] = useState(false);
+  const [showMembers, setShowMembers] = useState(false);
 
   const id = connectionId ?? "";
+  // Resolved once on mount; the login screen routes through a navigation, so a
+  // remount picks up new tokens. Stored in a ref so the value doesn't change
+  // between renders inside this page.
+  const apiTokenRef = useRef<string | undefined>(getApiToken());
+  const apiToken = apiTokenRef.current;
   const openPaths = useMemo(() => new Set(tabs.map((t) => t.path)), [tabs]);
 
   useEffect(() => {
@@ -204,31 +209,26 @@ export function WorkspacePage(): JSX.Element {
     });
   }, []);
 
-  const onSave = async (): Promise<void> => {
-    if (!id || !activePath) {
-      return;
-    }
-    setSaveError(null);
-    try {
-      const doc = await saveDocument(id, activePath);
-      applyDoc(doc);
-    } catch (e) {
-      setSaveError(e instanceof Error ? e.message : String(e));
-    }
-  };
+  /**
+   * WebSocket op_result handler — fired when the server responds to a save or
+   * refresh request issued by THIS tab's WS. Failures go in the save banner;
+   * successes clear it (revision/dirty updates flow through onState already).
+   */
+  const onOpResult = useCallback(
+    (_path: string, op: "save" | "refresh", ok: boolean, error?: string) => {
+      if (ok) {
+        setSaveError(null);
+        return;
+      }
+      const verb = op === "save" ? "Save" : "Refresh";
+      setSaveError(error ? `${verb} failed: ${error}` : `${verb} failed`);
+    },
+    [],
+  );
 
-  const onRefresh = async (force: boolean): Promise<void> => {
-    if (!id || !activePath) {
-      return;
-    }
-    setSaveError(null);
-    try {
-      const doc = await refreshDocument(id, activePath, force);
-      applyDoc(doc);
-    } catch (e) {
-      setSaveError(e instanceof Error ? e.message : String(e));
-    }
-  };
+  const onSocketUnavailable = useCallback(() => {
+    setSaveError("Not connected. Wait for the editor to reconnect and try again.");
+  }, []);
 
   const onCloseTab = useCallback(
     (path: string) => {
@@ -246,6 +246,15 @@ export function WorkspacePage(): JSX.Element {
       });
     },
     [id, activePath],
+  );
+
+  const onDocEvicted = useCallback(
+    (path: string, reason: "deleted" | "renamed" | "evicted") => {
+      onCloseTab(path);
+      const reasonLabel = reason === "renamed" ? "moved" : reason;
+      setSaveError(`The file ${path} was ${reasonLabel}; the tab has been closed.`);
+    },
+    [onCloseTab],
   );
 
   const onSelectTab = useCallback(
@@ -298,6 +307,92 @@ export function WorkspacePage(): JSX.Element {
     await loadDir(parentDir);
     void openFile(trimmed);
   }, [id, loadDir, openFile]);
+
+  // Right-click context menu for file rows in the tree. Closes on click-out.
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+  useEffect(() => {
+    if (!contextMenu) {
+      return;
+    }
+    const close = (): void => setContextMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("contextmenu", close, { capture: true });
+    window.addEventListener("keydown", close);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("contextmenu", close, { capture: true } as EventListenerOptions);
+      window.removeEventListener("keydown", close);
+    };
+  }, [contextMenu]);
+
+  const onFileContextMenu = useCallback((filePath: string, x: number, y: number): void => {
+    setContextMenu({ x, y, path: filePath });
+  }, []);
+
+  const onDeleteFile = useCallback(
+    async (filePath: string): Promise<void> => {
+      if (!id) return;
+      setContextMenu(null);
+      const ok = window.confirm(`Delete ${filePath}? This cannot be undone.`);
+      if (!ok) return;
+      setSaveError(null);
+      try {
+        await deleteFile(id, filePath);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setSaveError(`Could not delete ${filePath}: ${msg}`);
+        return;
+      }
+      // The server broadcasts tree_changed + doc_evicted; this tab refreshes
+      // its own parent dir immediately for snappiness.
+      const slash = filePath.lastIndexOf("/");
+      const parentDir = slash >= 0 ? filePath.slice(0, slash) : "";
+      await loadDir(parentDir);
+    },
+    [id, loadDir],
+  );
+
+  const onRenameFile = useCallback(
+    async (filePath: string): Promise<void> => {
+      if (!id) return;
+      setContextMenu(null);
+      const raw = window.prompt("Rename file to (path relative to workspace root):", filePath);
+      if (raw === null) return;
+      const target = raw.trim().replace(/^\/+/, "");
+      if (target === "" || target === filePath) {
+        return;
+      }
+      setSaveError(null);
+      try {
+        await renameFile(id, filePath, target);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setSaveError(
+          msg === "target_exists"
+            ? `A file already exists at ${target}`
+            : `Could not rename ${filePath}: ${msg}`,
+        );
+        return;
+      }
+      const fromSlash = filePath.lastIndexOf("/");
+      const fromDir = fromSlash >= 0 ? filePath.slice(0, fromSlash) : "";
+      const toSlash = target.lastIndexOf("/");
+      const toDir = toSlash >= 0 ? target.slice(0, toSlash) : "";
+      setExpanded((prev) => {
+        if (prev.has(toDir)) return prev;
+        const next = new Set(prev);
+        next.add(toDir);
+        return next;
+      });
+      await loadDir(fromDir);
+      if (toDir !== fromDir) {
+        await loadDir(toDir);
+      }
+      // Open the new file (the old tab was closed by the doc_evicted handler).
+      void openFile(target);
+    },
+    [id, loadDir, openFile],
+  );
 
   const onCloseConnection = async (): Promise<void> => {
     if (!id) {
@@ -357,9 +452,12 @@ export function WorkspacePage(): JSX.Element {
         <div className="sidebar-header">
           <div style={{ fontWeight: 600, color: "var(--text)" }}>{title}</div>
           <div style={{ fontSize: "0.8rem", marginTop: "0.2rem", wordBreak: "break-all" }}>{subtitle}</div>
-          <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.35rem" }}>
+          <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
             <button type="button" className="ghost" onClick={() => void onCreateFile()}>
               New file
+            </button>
+            <button type="button" className="ghost" onClick={() => setShowMembers(true)}>
+              Members
             </button>
             <button type="button" className="ghost" onClick={() => void onCloseConnection()}>
               Disconnect
@@ -372,6 +470,7 @@ export function WorkspacePage(): JSX.Element {
             depth={0}
             expanded={expanded}
             entriesByDir={entriesByDir}
+            onFileContextMenu={onFileContextMenu}
             activePath={activePath}
             openPaths={openPaths}
             onToggleDir={toggleDir}
@@ -389,12 +488,43 @@ export function WorkspacePage(): JSX.Element {
           onCloseTab={onCloseTab}
           onRevision={onRevision}
           onMarkDirty={onMarkDirty}
-          onSave={() => void onSave()}
-          onRefresh={(force) => void onRefresh(force)}
+          onOpResult={onOpResult}
+          onDocEvicted={onDocEvicted}
+          onSocketUnavailable={onSocketUnavailable}
           saveError={saveError}
         />
         {id ? <TerminalPanel connectionId={id} apiToken={apiToken} /> : null}
       </div>
+      {contextMenu ? (
+        <ul
+          className="context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <li>
+            <button
+              type="button"
+              className="context-menu-item"
+              onClick={() => void onRenameFile(contextMenu.path)}
+            >
+              Rename file…
+            </button>
+          </li>
+          <li>
+            <button
+              type="button"
+              className="context-menu-item danger"
+              onClick={() => void onDeleteFile(contextMenu.path)}
+            >
+              Delete file
+            </button>
+          </li>
+        </ul>
+      ) : null}
+      {showMembers && id ? (
+        <MembersPanel connectionId={id} onClose={() => setShowMembers(false)} />
+      ) : null}
     </div>
   );
 }
@@ -408,8 +538,19 @@ function DirBranch(props: {
   openPaths: Set<string>;
   onToggleDir: (dirPath: string) => void;
   onOpenFile: (path: string) => void;
+  onFileContextMenu: (path: string, x: number, y: number) => void;
 }): JSX.Element {
-  const { dirPath, depth, expanded, entriesByDir, activePath, openPaths, onToggleDir, onOpenFile } = props;
+  const {
+    dirPath,
+    depth,
+    expanded,
+    entriesByDir,
+    activePath,
+    openPaths,
+    onToggleDir,
+    onOpenFile,
+    onFileContextMenu,
+  } = props;
   const bucket = entriesByDir[dirPath];
 
   if (bucket === "loading" || bucket === undefined) {
@@ -454,6 +595,7 @@ function DirBranch(props: {
                 openPaths={openPaths}
                 onToggleDir={onToggleDir}
                 onOpenFile={onOpenFile}
+                onFileContextMenu={onFileContextMenu}
               />
             ) : null}
           </div>
@@ -469,6 +611,11 @@ function DirBranch(props: {
               .join(" ")}
             style={{ ["--depth" as string]: String(depth + 1) }}
             onClick={() => onOpenFile(ent.path)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              onFileContextMenu(ent.path, e.clientX, e.clientY);
+            }}
+            title="Right-click for actions (rename, delete)"
           >
             <span className="chevron" />
             <span className="name">{ent.name}</span>

@@ -1,0 +1,34 @@
+[Unit]
+Description=Conduit middleman
+Documentation=https://github.com/your-fork/conduit
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=conduit
+Group=conduit
+WorkingDirectory=/var/lib/conduit/app
+EnvironmentFile=/etc/conduit/env
+ExecStart=/usr/bin/node /var/lib/conduit/app/services/middleman/dist/index.js
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/conduit
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+# RestrictAddressFamilies blocks os.networkInterfaces(); Fastify calls that on
+# listen and crashes with ERR_SYSTEM_ERROR 97.
+LockPersonality=true
+# Node.js needs W^X for its JIT; MemoryDenyWriteExecute causes SIGTRAP on start.
+RestrictRealtime=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

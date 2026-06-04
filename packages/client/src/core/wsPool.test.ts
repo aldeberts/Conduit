@@ -8,7 +8,7 @@ import {
   WS_CONNECTING,
   WS_OPEN,
   type DispatchTargets,
-} from "./wsPoolCore.js";
+} from "./wsPool.js";
 
 function makePool(ws: { readyState: number } | null, connecting = false): {
   connectionId: string;

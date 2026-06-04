@@ -14,6 +14,14 @@ export type MiddlemanConfig = {
   dataDir: string;
   /** When set, require Bearer / X-Conduit-Token / ?token= on API and WebSocket. */
   apiToken?: string;
+  /** Path to the sqlite database (Phase 2). Defaults to `${dataDir}/conduit.db`. */
+  dbPath: string;
+  /** When true (NODE_ENV=production), session cookies are marked Secure. */
+  secureCookies: boolean;
+  /** When false, only admins can register new users. */
+  allowSelfSignup: boolean;
+  /** Server-side key for sealing SSH credentials at rest (libsodium-style box). */
+  secretsKey: string | undefined;
 };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -37,11 +45,19 @@ export function loadConfig(): MiddlemanConfig {
   const rawData = process.env.DATA_DIR ?? "data/conduit";
   const dataDir = path.isAbsolute(rawData) ? rawData : path.resolve(repoRoot, rawData);
   const apiToken = process.env.API_TOKEN?.trim() || undefined;
+  const dbPath = process.env.DB_PATH?.trim() || path.join(dataDir, "conduit.db");
+  const secureCookies = process.env.NODE_ENV === "production";
+  const allowSelfSignup = process.env.ALLOW_SELF_SIGNUP !== "false";
+  const secretsKey = process.env.CONDUIT_SECRET_KEY?.trim() || undefined;
   return {
     port,
     realRoot,
     workspaceId: "local-default",
     dataDir,
     apiToken,
+    dbPath,
+    secureCookies,
+    allowSelfSignup,
+    secretsKey,
   };
 }

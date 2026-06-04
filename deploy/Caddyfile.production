@@ -1,0 +1,43 @@
+# Production Caddyfile for conduit.aldeneberts.com
+# Copy to /etc/caddy/Caddyfile on the Droplet.
+
+conduit.aldeneberts.com {
+	encode gzip zstd
+
+	@websockets {
+		header Connection *Upgrade*
+		header Upgrade websocket
+		path /api/ws
+	}
+	handle @websockets {
+		reverse_proxy localhost:3333 {
+			flush_interval -1
+			transport http {
+				read_timeout 0
+			}
+		}
+	}
+
+	handle /health {
+		reverse_proxy localhost:3333
+	}
+
+	@api path_regexp ^/api(/|$)
+	handle @api {
+		reverse_proxy localhost:3333
+	}
+
+	handle {
+		root * /var/www/conduit
+		try_files {path} /index.html
+		file_server
+	}
+
+	log {
+		output file /var/log/caddy/conduit.access.log {
+			roll_size 50mb
+			roll_keep 5
+		}
+		format console
+	}
+}

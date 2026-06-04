@@ -1,0 +1,48 @@
+# Replace conduit.example.com with your real hostname. Caddy provisions a
+# Let's Encrypt certificate automatically on first request.
+
+conduit.example.com {
+	encode gzip zstd
+
+	# WebSocket endpoint -- y-protocols + awareness traffic.
+	@websockets {
+		header Connection *Upgrade*
+		header Upgrade websocket
+		path /api/ws
+	}
+	handle @websockets {
+		reverse_proxy localhost:3333 {
+			flush_interval -1
+			transport http {
+				read_timeout 0
+			}
+		}
+	}
+
+	# Health probe (login screen hits this before auth).
+	handle /health {
+		reverse_proxy localhost:3333
+	}
+
+	# Every /api/... route, including nested paths like /api/auth/register.
+	# Plain "/api/*" only matches ONE segment and breaks auth routes (405).
+	@api path_regexp ^/api(/|$)
+	handle @api {
+		reverse_proxy localhost:3333
+	}
+
+	# Static SPA + React Router fallback.
+	handle {
+		root * /var/www/conduit
+		try_files {path} /index.html
+		file_server
+	}
+
+	log {
+		output file /var/log/caddy/conduit.access.log {
+			roll_size 50mb
+			roll_keep 5
+		}
+		format console
+	}
+}

@@ -9,12 +9,25 @@ import {
 import { defaultKeymap, indentWithTab } from "@codemirror/commands";
 import { foldGutter } from "@codemirror/language";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Awareness } from "y-protocols/awareness";
+import {
+  Awareness,
+  applyAwarenessUpdate,
+  encodeAwarenessUpdate,
+} from "y-protocols/awareness";
 import { yCollab } from "y-codemirror.next";
 import type * as Y from "yjs";
 import { catppuccinMochaTheme } from "../editor/catppuccinMocha";
 import { languageSupportForPath } from "../editor/languageSupport";
 import { DocumentWsSync } from "../lib/documentWs";
+import { base64ToUint8, uint8ToBase64 } from "@conduit/client";
+import { loadOrCreateUserIdentity } from "../lib/userIdentity";
+
+export type CollabActions = {
+  /** Asks the server to flush this tab's buffer to remote storage. */
+  save: () => boolean;
+  /** Reload from remote storage. `force` discards local dirty edits. */
+  refresh: (force: boolean) => boolean;
+};
 
 type Props = {
   connectionId: string;
@@ -26,6 +39,16 @@ type Props = {
   apiToken?: string;
   onRevision?: (revision: number, dirty: boolean) => void;
   onMarkDirty?: () => void;
+  /** Result of a previously-issued save / refresh. `error` is non-empty on failure. */
+  onOpResult?: (op: "save" | "refresh", ok: boolean, error?: string) => void;
+  /** Server told us the document is gone; the tab should be closed locally. */
+  onDocEvicted?: (reason: "deleted" | "renamed" | "evicted") => void;
+  /**
+   * Called once with `{save, refresh}` when the editor's WS sync is ready, and
+   * once with `null` when it tears down. Parents key by path to route Save/Refresh
+   * button clicks to the active tab.
+   */
+  registerActions?: (actions: CollabActions | null) => void;
 };
 
 /**
@@ -103,6 +126,9 @@ export function CollaborativeEditor({
   apiToken,
   onRevision,
   onMarkDirty,
+  onOpResult,
+  onDocEvicted,
+  registerActions,
 }: Props): JSX.Element {
   const syncRef = useRef<DocumentWsSync | null>(null);
   const awarenessRef = useRef<Awareness | null>(null);
@@ -114,6 +140,12 @@ export function CollaborativeEditor({
   onRevisionRef.current = onRevision;
   const onMarkDirtyRef = useRef(onMarkDirty);
   onMarkDirtyRef.current = onMarkDirty;
+  const onOpResultRef = useRef(onOpResult);
+  onOpResultRef.current = onOpResult;
+  const onDocEvictedRef = useRef(onDocEvicted);
+  onDocEvictedRef.current = onDocEvicted;
+  const registerActionsRef = useRef(registerActions);
+  registerActionsRef.current = registerActions;
   const seedContentRef = useRef(seedContent);
   seedContentRef.current = seedContent;
   const [fallbackText, setFallbackText] = useState(seedContent ?? "");
@@ -129,8 +161,14 @@ export function CollaborativeEditor({
       return;
     }
 
-    // Each browser tab has its own WebSocket; connect as soon as the tab row exists.
-    const sync = new DocumentWsSync(connectionId, path, {
+    // `awareness` is constructed up here so both the sync callback and the
+    // Y-Awareness 'update' listener (registered below) can close over it.
+    let awareness: Awareness | null = null;
+
+    const sync = new DocumentWsSync(
+      connectionId,
+      path,
+      {
         onSubscribed: () => {
           setSubscribed(true);
           setCollabReady(true);
@@ -138,24 +176,64 @@ export function CollaborativeEditor({
         onState: (revision, dirty) => onRevisionRef.current?.(revision, dirty),
         onLocalEdit: () => onMarkDirtyRef.current?.(),
         onError: (msg) => setError(msg),
-      }, apiToken);
+        onAwarenessUpdate: (updateB64) => {
+          if (awareness) {
+            applyAwarenessUpdate(awareness, base64ToUint8(updateB64), "remote");
+          }
+        },
+        onOpResult: (op, ok, errorMsg) => onOpResultRef.current?.(op, ok, errorMsg),
+        onDocEvicted: (reason) => onDocEvictedRef.current?.(reason),
+      },
+      apiToken,
+    );
 
     const seed = seedContentRef.current ?? "";
     if (seed.length > 0) {
       setFallbackText(seed);
     }
-    const awareness = new Awareness(sync.ydoc);
+    awareness = new Awareness(sync.ydoc);
+    const identity = loadOrCreateUserIdentity();
+    awareness.setLocalStateField("user", {
+      name: identity.name,
+      color: identity.color,
+      colorLight: identity.colorLight,
+    });
+
+    // Forward local awareness changes (cursor moves, identity changes) to the
+    // server, which fans them out to other subscribers. Skip events with
+    // origin="remote" so we don't echo what we just received.
+    const awarenessHandler = (
+      _changes: { added: number[]; updated: number[]; removed: number[] },
+      origin: unknown,
+    ): void => {
+      if (origin === "remote") {
+        return;
+      }
+      if (!awareness) {
+        return;
+      }
+      const payload = encodeAwarenessUpdate(awareness, [awareness.clientID]);
+      sync.sendAwareness(uint8ToBase64(payload));
+    };
+    awareness.on("update", awarenessHandler);
+
     syncRef.current = sync;
     awarenessRef.current = awareness;
     setError(null);
     setCollabReady(true);
     setSubscribed(false);
     sync.connect();
+    registerActionsRef.current?.({
+      save: () => sync.save(),
+      refresh: (force) => sync.refresh(force),
+    });
 
     return () => {
+      registerActionsRef.current?.(null);
+      awareness?.off("update", awarenessHandler);
       sync.disableSync();
       sync.disconnect();
-      awareness.destroy();
+      awareness?.destroy();
       syncRef.current = null;
       awarenessRef.current = null;
       setCollabReady(false);
