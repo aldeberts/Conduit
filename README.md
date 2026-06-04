@@ -6,6 +6,10 @@ This repo is a **TypeScript monorepo** (`npm` workspaces).
 
 See **[ROADMAP.md](ROADMAP.md)** for the phased plan.
 
+## AI-assisted development
+
+A majority of this codebase was **generated with [Cursor](https://cursor.com)** (AI-assisted editing and agents), then **reviewed and tested** by hand—local dev, SSH/Duo flows, deploy scripts, and production smoke checks on [conduit.aldeneberts.com](https://conduit.aldeneberts.com). Treat generated code like any other contribution: run tests, try critical paths, and fix what breaks before you rely on it.
+
 ## Using Conduit at [conduit.aldeneberts.com](https://conduit.aldeneberts.com)
 
 The hosted instance is a browser workspace backed by SSH/SFTP on your remote machines.
